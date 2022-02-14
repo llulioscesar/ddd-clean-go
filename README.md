@@ -116,7 +116,7 @@ Ejemplo del repositorio
                 └── parameter.go # 1. Interface
 ```
 
-**Interfaz en la capa de dominio**
+**1. Interfaz en la capa de dominio**
 
 ```go
 package repository
@@ -129,4 +129,115 @@ type IParameter interface {
 }
 ```
 
-**Caso de uso en la capa de aplicacion**
+**2. Caso de uso en la capa de aplicacion**
+```go
+package usecase
+
+import (
+	"dddcleango/internal/app/domain"
+	"dddcleango/internal/app/domain/repository"
+)
+
+// Parameter is the usecase of getting parameter
+func Parameter(r repository.IParameter) domain.Parameter {
+	return r.Get()
+}
+```
+
+**Implementación en la capa de adaptador:**
+```go
+package repository
+
+import (
+	"dddcleango/internal/app/adapter/postgresql"
+	"dddcleango/internal/app/adapter/postgresql/model"
+	"dddcleango/internal/app/domain"
+)
+
+// Parameter is the repository of domain.Parameter
+type Parameter struct{}
+
+// Get gets parameter
+func (r Parameter) Get() domain.Parameter {
+	db := postgresql.Connection()
+	var param model.Parameter
+	result := db.First(&param, 1)
+	if result.Error != nil {
+		panic(result.Error)
+	}
+	return domain.Parameter{
+		Funds: param.Funds,
+		Btc:   param.Btc,
+	}
+}
+```
+
+**4. Inyección de dependencia en el controlador de la capa de adaptador:**
+```go
+package adapter
+
+import (
+	"net/http"
+
+	"dddcleango/internal/app/adapter/repository"
+	"dddcleango/internal/app/adapter/service"
+	"dddcleango/internal/app/application/usecase"
+	"dddcleango/internal/app/domain/valueobject"
+	"github.com/gin-gonic/gin"
+)
+
+var (
+	bitbank             = service.Bitbank{}
+	parameterRepository = repository.Parameter{}
+	orderRepository     = repository.Order{}
+)
+
+// Controller is a controller
+type Controller struct{}
+
+// Router is routing settings
+func Router() *gin.Engine {
+	r := gin.Default()
+	ctrl := Controller{}
+	// NOTICE: following path is from CURRENT directory, so please run Gin from root directory
+	r.LoadHTMLGlob("internal/app/adapter/view/*")
+	r.GET("/", ctrl.index)
+	r.GET("/ticker", ctrl.ticker)
+	r.GET("/candlestick", ctrl.candlestick)
+	r.GET("/parameter", ctrl.parameter)
+	r.GET("/order", ctrl.order)
+	return r
+}
+
+func (ctrl Controller) index(c *gin.Context) {
+	c.HTML(http.StatusOK, "index.tmpl", gin.H{
+		"title": "Hello Goilerplate",
+	})
+}
+
+func (ctrl Controller) ticker(c *gin.Context) {
+	pair := valueobject.BtcJpy
+	ticker := usecase.Ticker(bitbank, pair) // Dependency Injection
+	c.JSON(200, ticker)
+}
+
+func (ctrl Controller) candlestick(c *gin.Context) {
+	args := usecase.OhlcArgs{
+		E: bitbank, // Dependency Injection
+		P: valueobject.BtcJpy,
+		T: valueobject.OneMin,
+	}
+	candlestick := usecase.Ohlc(args)
+	c.JSON(200, candlestick)
+}
+
+func (ctrl Controller) parameter(c *gin.Context) {
+	parameter := usecase.Parameter(parameterRepository) // Dependency Injection
+	c.JSON(200, parameter)
+}
+
+func (ctrl Controller) order(c *gin.Context) {
+	order := usecase.AddNewCardAndEatCheese(orderRepository) // Dependency Injection
+	c.JSON(200, order)
+}
+```
